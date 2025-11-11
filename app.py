@@ -8,8 +8,7 @@ from sklearn.metrics import mean_squared_error, r2_score, confusion_matrix, clas
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 import matplotlib.pyplot as plt
 import seaborn as sns
-import io
-import base64
+import chardet
 
 # Page configuration
 st.set_page_config(
@@ -233,246 +232,200 @@ def create_binned_classification_report(y_test, y_pred):
         }
 
 def main():
-    # Header
     st.markdown('<h1 class="main-header">🧠 ML Model Evaluator</h1>', unsafe_allow_html=True)
-    st.markdown("### Upload dataset dan evaluasi model machine learning dengan berbagai algoritma")
-    
-    # Sidebar untuk upload dan konfigurasi
+    st.markdown("### Upload dataset dan evaluasi model machine learning")
+
+    # Sidebar
     with st.sidebar:
-        st.header("ML CAKRA")
+        st.header("⚙️ Configuration")
         
-        # File upload
         uploaded_file = st.file_uploader(
             "Upload Dataset", 
             type=['xlsx', 'xls', 'csv'],
-            help="Upload file Excel atau CSV. Kolom terakhir harus target variable."
+            help="Upload file Excel atau CSV"
         )
         
-        # Model selection
         model_type = st.selectbox(
             "Pilih Model",
-            ["Linear Regression", "Ridge Regression", "Lasso Regression", "Random Forest"],
-            index=0
+            ["Linear Regression", "Ridge Regression", "Lasso Regression", "Random Forest"]
         )
         
-        # Map model names to values
-        model_map = {
-            "Linear Regression": "linear",
-            "Ridge Regression": "ridge", 
-            "Lasso Regression": "lasso",
-            "Random Forest": "random_forest"
-        }
-        
-        model_value = model_map[model_type]
-        
-        # Analyze button
         analyze_btn = st.button("🚀 Launch Analysis", type="primary", use_container_width=True)
     
-    # Main content area
+    # Main content
     if uploaded_file is not None:
         try:
-            # Read file
+            # Read file dengan handling encoding yang lebih baik
             if uploaded_file.name.endswith('.csv'):
-                df = pd.read_csv(uploaded_file)
-            else:
+                # Coba detect encoding
+                raw_data = uploaded_file.read()
+                encoding = chardet.detect(raw_data)['encoding']
+                uploaded_file.seek(0)  # Reset file pointer
+                
+                # Coba berbagai encoding
+                encodings_to_try = [encoding, 'utf-8', 'latin-1', 'iso-8859-1', 'windows-1252']
+                
+                for enc in encodings_to_try:
+                    try:
+                        uploaded_file.seek(0)
+                        if enc:
+                            df = pd.read_csv(uploaded_file, encoding=enc)
+                        else:
+                            df = pd.read_csv(uploaded_file)
+                        st.success(f"✅ File loaded with encoding: {enc}")
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                else:
+                    # Jika semua encoding gagal, gunakan latin-1 dengan error handling
+                    uploaded_file.seek(0)
+                    df = pd.read_csv(uploaded_file, encoding='latin-1', errors='replace')
+                    st.warning("⚠️ File loaded with encoding issues (some characters replaced)")
+                    
+            else:  # Excel file
                 df = pd.read_excel(uploaded_file)
             
-            # Show dataset info
-            st.success(f"✅ Dataset loaded successfully: {df.shape[0]} rows × {df.shape[1]} columns")
+            st.success(f"✅ Dataset loaded: {df.shape[0]} rows × {df.shape[1]} columns")
             
+            # Tampilkan preview
             with st.expander("📊 Dataset Preview"):
                 st.dataframe(df.head(), use_container_width=True)
-                st.write(f"**Shape:** {df.shape}")
-                st.write("**Columns:**", list(df.columns))
+                st.write(f"**Data Types:**")
+                st.write(df.dtypes)
+            
+            # Cek kolom yang diperlukan
+            required_cols = [col for col in df.columns if 'Sales' in col or ' :' in col]
+            if not required_cols:
+                st.error("❌ Dataset tidak memiliki kolom yang diperlukan (Sales atau kolom media)")
+                st.info("Pastikan dataset memiliki kolom 'Sales' dan kolom media dengan format 'Channel :'")
+                return
             
             if analyze_btn:
-                with st.spinner("🔄 Training model and generating insights..."):
-                    # Preprocessing
-                    (X_train_scaled, X_test_scaled, X_train, X_test, 
-                     y_train_log, y_test, y_test_log, scaler, preprocessing_info) = preprocess_data_advanced(df)
-                    
-                    # Train model based on selection
-                    if model_value == 'linear':
-                        model = LinearRegression()
-                        model.fit(X_train_scaled, y_train_log)
-                        y_pred_log = model.predict(X_test_scaled)
-                    elif model_value == 'ridge':
-                        model = Ridge(alpha=1.0)
-                        model.fit(X_train_scaled, y_train_log)
-                        y_pred_log = model.predict(X_test_scaled)
-                    elif model_value == 'lasso':
-                        model = Lasso(alpha=1.0)
-                        model.fit(X_train_scaled, y_train_log)
-                        y_pred_log = model.predict(X_test_scaled)
-                    else:  # random_forest
-                        model = RandomForestRegressor(
-                            n_estimators=100,
-                            max_depth=10,
-                            min_samples_split=5,
-                            min_samples_leaf=2,
-                            random_state=42
-                        )
-                        model.fit(X_train, y_train_log)
-                        y_pred_log = model.predict(X_test)
-                    
-                    # Convert predictions back to original scale
-                    y_pred = np.expm1(y_pred_log)
-                    
-                    # Calculate metrics
-                    mse = mean_squared_error(y_test, y_pred)
-                    r2 = r2_score(y_test, y_pred)
-                    
-                    # Display Results
-                    st.success("🎉 Analysis Complete!")
-                    
-                    # Metrics in columns
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    with col1:
-                        st.metric("Model", model_type)
-                    with col2:
-                        st.metric("Mean Squared Error", f"{mse:.4f}")
-                    with col3:
-                        st.metric("R-squared (R²)", f"{r2:.4f}")
-                    with col4:
-                        st.metric("Features Used", len(preprocessing_info['features_used']))
-                    
-                    # Preprocessing Steps
-                    st.subheader("🔧 Preprocessing Steps")
-                    
-                    steps_col1, steps_col2 = st.columns(2)
-                    
-                    with steps_col1:
-                        st.markdown("""
-                        <div class="step-card">
-                            <h4>🧹 Data Cleaning</h4>
-                            <p>• Removed $ symbols and commas</p>
-                            <p>• Handled missing values</p>
-                        </div>
-                        """, unsafe_allow_html=True)
+                with st.spinner("🔄 Training model..."):
+                    try:
+                        # Preprocessing
+                        (X_train_scaled, X_test_scaled, X_train, X_test, 
+                         y_train_log, y_test, y_test_log, scaler, preprocessing_info) = preprocess_data_advanced(df)
                         
-                        st.markdown("""
-                        <div class="step-card">
-                            <h4>🎯 Feature Selection</h4>
-                            <p>Selected media aggregate features</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    
-                    with steps_col2:
-                        st.markdown("""
-                        <div class="step-card">
-                            <h4>🔧 Feature Engineering</h4>
-                            <p>Aggregated media channels</p>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        # Model training
+                        if model_type == "Linear Regression":
+                            model = LinearRegression()
+                            model.fit(X_train_scaled, y_train_log)
+                            y_pred_log = model.predict(X_test_scaled)
+                        elif model_type == "Ridge Regression":
+                            model = Ridge(alpha=1.0)
+                            model.fit(X_train_scaled, y_train_log)
+                            y_pred_log = model.predict(X_test_scaled)
+                        elif model_type == "Lasso Regression":
+                            model = Lasso(alpha=1.0)
+                            model.fit(X_train_scaled, y_train_log)
+                            y_pred_log = model.predict(X_test_scaled)
+                        else:  # Random Forest
+                            model = RandomForestRegressor(n_estimators=100, random_state=42)
+                            model.fit(X_train, y_train_log)
+                            y_pred_log = model.predict(X_test)
                         
-                        st.markdown("""
-                        <div class="step-card">
-                            <h4>📊 Data Transformation</h4>
-                            <p>• Log transform</p>
-                            <p>• Winsorization</p>
-                            <p>• Standard scaling</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    
-                    # Visualizations
-                    st.subheader("📈 Visualizations")
-                    
-                    # Create plots
-                    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
-                    
-                    # Plot 1: Actual vs Predicted
-                    ax1.scatter(y_test, y_pred, alpha=0.7, color='blue')
-                    ax1.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', lw=2)
-                    ax1.set_xlabel('Actual Values')
-                    ax1.set_ylabel('Predicted Values')
-                    ax1.set_title('Actual vs Predicted')
-                    
-                    # Plot 2: Residuals
-                    residuals = y_test - y_pred
-                    ax2.scatter(y_pred, residuals, alpha=0.7, color='green')
-                    ax2.axhline(y=0, color='red', linestyle='--')
-                    ax2.set_xlabel('Predicted Values')
-                    ax2.set_ylabel('Residuals')
-                    ax2.set_title('Residual Plot')
-                    
-                    # Plot 3: Feature Importance
-                    if hasattr(model, 'feature_importances_'):
-                        feature_importance = model.feature_importances_
-                        features = X_train.columns
-                        indices = np.argsort(feature_importance)[::-1]
-                        ax3.bar(range(len(feature_importance)), feature_importance[indices])
-                        ax3.set_xticks(range(len(feature_importance)))
-                        ax3.set_xticklabels([features[i] for i in indices], rotation=45)
-                        ax3.set_title('Feature Importance')
-                    else:
-                        # For linear models, show coefficients
-                        if hasattr(model, 'coef_'):
-                            coefficients = np.abs(model.coef_)
+                        # Predictions
+                        y_pred = np.expm1(y_pred_log)
+                        
+                        # Metrics
+                        mse = mean_squared_error(y_test, y_pred)
+                        r2 = r2_score(y_test, y_pred)
+                        
+                        # Results
+                        st.success("🎉 Analysis Complete!")
+                        
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Model", model_type)
+                        with col2:
+                            st.metric("MSE", f"{mse:.4f}")
+                        with col3:
+                            st.metric("R² Score", f"{r2:.4f}")
+                        with col4:
+                            st.metric("Features", len(preprocessing_info['features_used']))
+                        
+                        # Visualizations
+                        st.subheader("📈 Visualizations")
+                        
+                        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
+                        
+                        # Plot 1: Actual vs Predicted
+                        ax1.scatter(y_test, y_pred, alpha=0.7)
+                        ax1.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', lw=2)
+                        ax1.set_xlabel('Actual')
+                        ax1.set_ylabel('Predicted')
+                        ax1.set_title('Actual vs Predicted')
+                        
+                        # Plot 2: Residuals
+                        residuals = y_test - y_pred
+                        ax2.scatter(y_pred, residuals, alpha=0.7, color='green')
+                        ax2.axhline(y=0, color='red', linestyle='--')
+                        ax2.set_xlabel('Predicted')
+                        ax2.set_ylabel('Residuals')
+                        ax2.set_title('Residual Plot')
+                        
+                        # Plot 3: Feature Importance
+                        if hasattr(model, 'feature_importances_'):
+                            importance = model.feature_importances_
                             features = X_train.columns
-                            indices = np.argsort(coefficients)[::-1]
-                            ax3.bar(range(len(coefficients)), coefficients[indices])
-                            ax3.set_xticks(range(len(coefficients)))
+                            indices = np.argsort(importance)[::-1]
+                            ax3.bar(range(len(importance)), importance[indices])
+                            ax3.set_xticks(range(len(importance)))
                             ax3.set_xticklabels([features[i] for i in indices], rotation=45)
-                            ax3.set_title('Feature Importance (Absolute Coefficients)')
-                    
-                    # Plot 4: Error Distribution
-                    ax4.hist(residuals, bins=20, alpha=0.7, color='orange', edgecolor='black')
-                    ax4.set_xlabel('Error')
-                    ax4.set_ylabel('Frequency')
-                    ax4.set_title('Error Distribution')
-                    
-                    plt.tight_layout()
-                    st.pyplot(fig)
-                    
-                    # Binning Classification Report
-                    st.subheader("📊 Classification Report (Binned Sales)")
-                    
-                    binning_result = create_binned_classification_report(y_test, y_pred)
-                    
-                    if binning_result['success']:
-                        binning_info = binning_result['bins_info']
+                            ax3.set_title('Feature Importance')
+                        else:
+                            # Untuk linear models
+                            if hasattr(model, 'coef_'):
+                                importance = np.abs(model.coef_)
+                                features = X_train.columns
+                                indices = np.argsort(importance)[::-1]
+                                ax3.bar(range(len(importance)), importance[indices])
+                                ax3.set_xticks(range(len(importance)))
+                                ax3.set_xticklabels([features[i] for i in indices], rotation=45)
+                                ax3.set_title('Feature Importance (Coefficients)')
+                            else:
+                                ax3.text(0.5, 0.5, 'No feature importance\navailable for this model', 
+                                        ha='center', va='center', transform=ax3.transAxes)
+                                ax3.set_title('Feature Importance')
                         
-                        st.info(f"""
-                        **Sales Categories:**
-                        - **Low Sales:** < ${binning_info['low_sales_max']:,.2f}
-                        - **Medium Sales:** ${binning_info['medium_sales_min']:,.2f} - ${binning_info['medium_sales_max']:,.2f}
-                        - **High Sales:** > ${binning_info['high_sales_min']:,.2f}
-                        """)
+                        # Plot 4: Error Distribution
+                        ax4.hist(residuals, bins=20, alpha=0.7, color='orange', edgecolor='black')
+                        ax4.set_xlabel('Error')
+                        ax4.set_ylabel('Frequency')
+                        ax4.set_title('Error Distribution')
                         
-                        # Confusion Matrix
-                        cm_df = binning_result['confusion_matrix']
-                        fig_cm, ax_cm = plt.subplots(figsize=(8, 6))
-                        sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues', ax=ax_cm)
-                        ax_cm.set_title('Confusion Matrix')
-                        st.pyplot(fig_cm)
+                        plt.tight_layout()
+                        st.pyplot(fig)
                         
-                        # Classification Report
-                        report = binning_result['classification_report']
-                        st.subheader("Classification Metrics")
-                        report_df = pd.DataFrame(report).transpose()
-                        st.dataframe(report_df, use_container_width=True)
-                    
+                    except Exception as e:
+                        st.error(f"❌ Error during model training: {str(e)}")
+                        st.info("Please check your dataset format and try again.")
+                        
         except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
-            st.info("Please check your dataset format and try again.")
+            st.error(f"❌ Error loading file: {str(e)}")
+            st.info("""
+            **Tips:**
+            - Pastikan file CSV menggunakan encoding UTF-8
+            - Untuk file Excel, pastikan format .xlsx atau .xls
+            - Coba download template dataset yang compatible
+            """)
     
     else:
-        # Welcome message when no file uploaded
         st.info("👆 Please upload a dataset to get started")
         
-        # Sample workflow
-        with st.expander("ℹ️ How to use this app"):
+        with st.expander("💡 Sample Dataset Format"):
             st.markdown("""
-            1. **Upload** your Excel or CSV file
-            2. **Select** a machine learning model
-            3. **Click** "Launch Analysis"
-            4. **View** results and visualizations
+            **Format yang didukung:**
+            - Kolom terakhir: **Sales** (target variable)
+            - Kolom lainnya: Media channels dengan format **'Channel Name :'**
             
-            **Requirements:**
-            - Last column should be the target variable (Sales)
-            - Supported formats: .xlsx, .xls, .csv
-            - Data will be automatically preprocessed
+            **Contoh struktur:**
+            ```
+            Internet : Total, Television : Total, Radio : Total, ..., Sales
+            1000, 500, 300, ..., 25000
+            1200, 600, 350, ..., 28000
+            ```
             """)
 
 if __name__ == "__main__":
