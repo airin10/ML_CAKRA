@@ -17,10 +17,3 @@ Aplikasi web untuk evaluasi model machine learning regression dengan berbagai al
 2. **Ridge Regression** 
 3. **Lasso Regression**
 4. **Random Forest Regressor**
-
-## 🛠️ Instalasi
-
-1. Clone repository:
-```bash
-git clone https://github.com/username/ML-CAKRA.git
-cd ml-model-evaluator
