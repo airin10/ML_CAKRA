@@ -232,7 +232,7 @@ def create_binned_classification_report(y_test, y_pred):
         }
 
 def main():
-    st.markdown('<h1 class="main-header">🧠 ML Model Evaluator</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">🧠 ML CAKRA</h1>', unsafe_allow_html=True)
     st.markdown("### Upload dataset dan evaluasi model machine learning")
 
     # Sidebar
