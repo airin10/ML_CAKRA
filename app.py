@@ -53,7 +53,10 @@ def preprocess_data_advanced(df):
     """
     df_clean = df.copy()
     
-    # 1. Pembersihan Data & Konversi Tipe Data Numerik
+    # =============================================================================
+    # 1. 🧹 Pembersihan Data & Konversi Tipe Data Numerik
+    # =============================================================================
+    
     target_and_media_cols = [col for col in df_clean.columns if ' :' in col or col == 'Sales']
     other_numeric_cols = ['Contract Amount Reported']
     all_numeric_to_clean = target_and_media_cols + other_numeric_cols
@@ -71,7 +74,10 @@ def preprocess_data_advanced(df):
     object_cols = df_clean.select_dtypes(include=['object']).columns
     df_clean[object_cols] = df_clean[object_cols].fillna('Unknown')
 
-    # 2. Feature Engineering (Aggregasi Media)
+    # =============================================================================
+    # 2. 🔧 FEATURE ENGINEERING (AGGREGASI MEDIA)
+    # =============================================================================
+    
     aggregation_groups = {
         'Internet_Total': 'Internet :', 'Canvassing_Total': 'Canvassing :',
         'InPerson_Total': 'In-Person Meetings :', 'Radio_Total': 'Radio :',
@@ -88,36 +94,49 @@ def preprocess_data_advanced(df):
 
     df_aggregated = df_clean.copy()
 
-    # 3. Pemilihan Fitur (Hanya Aggregat Media)
+    # =============================================================================
+    # 3. 🎯 PEMILIHAN FITUR (REVISI: HANYA AGGREGAT MEDIA)
+    # =============================================================================
+    
     media_aggregates = list(aggregation_groups.keys())
     media_aggregates = [agg for agg in media_aggregates if agg in df_aggregated.columns]
 
+    # --- REVISI: HANYA MENGGUNAKAN SALES DAN MEDIA AGGREGATES ---
     features_to_keep = ['Sales'] + media_aggregates
+    # --- Menghilangkan 'Business Unit' dan 'Campaign Name' ---
+
     df_model = df_aggregated[[f for f in features_to_keep if f in df_aggregated.columns]].copy()
 
-    # 4. Pembagian Data & Outlier Handling
+    # =============================================================================
+    # 4. 📊 PEMBAGIAN DATA & OUTLIER HANDLING (STABILISASI TARGET Y TETAP)
+    # =============================================================================
+    
     X = df_model.drop('Sales', axis=1)
     y = df_model['Sales']
 
-    # Pembagian Data
+    # 4a. Pembagian Data
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.3, random_state=42
     )
 
-    # Log Transform dan Winsorization pada Target Y
+    # --- REVISI BARU: LOG TRANSFORM DAN WINSORIZATION PADA TARGET Y ---
+    st.info("📈 Log Transform dan Winsorization pada Variabel Target (Sales).")
     y_train_log = np.log1p(y_train)
     y_test_log = np.log1p(y_test)
 
-    # Winsorization Khusus untuk y_train_log
+    # 4b-i. Winsorization Khusus untuk y_train_log
     y_train_proc = y_train_log.copy()
     y_lower_bound = y_train_proc.quantile(0.01)
     y_upper_bound = y_train_proc.quantile(0.99)
 
     y_train_log_winsorized = np.where(y_train_proc < y_lower_bound, y_lower_bound, y_train_proc)
     y_train_log_winsorized = np.where(y_train_log_winsorized > y_upper_bound, y_upper_bound, y_train_log_winsorized)
+
     y_train_log = pd.Series(y_train_log_winsorized, index=y_train.index)
 
-    # Outlier Handling (Winsorization) - Hanya pada X (Fitur)
+    # -----------------------------------------------------------------------
+
+    # 4c. Outlier Handling (Winsorization) - Hanya pada X (Fitur)
     def winsorize_data(X_df):
         X_proc = X_df.copy()
         for col in X_proc.columns:
@@ -130,8 +149,9 @@ def preprocess_data_advanced(df):
 
     X_train = winsorize_data(X_train)
     X_test = winsorize_data(X_test)
+    st.info("✅ Winsorization (5%/95%) diterapkan pada X_train dan X_test.")
 
-    # Final Check: Memastikan X_train/X_test hanya berisi numerik
+    # 4d. 🧹 FINAL CHECK: MEMASTIKAN X_train/X_test HANYA BERISI NUMERIK
     def ensure_numeric_data(X_df):
         X_proc = X_df.copy()
         for col in X_proc.columns:
@@ -141,8 +161,12 @@ def preprocess_data_advanced(df):
 
     X_train = ensure_numeric_data(X_train)
     X_test = ensure_numeric_data(X_test)
+    st.info("✅ Tipe data di X_train dan X_test dikonfirmasi sebagai numerik/float.")
 
-    # 5. Normalisasi Data (Scaling) - Hanya untuk model linear
+    # =============================================================================
+    # 5. ⚖️ NORMALISASI DATA (SCALING)
+    # =============================================================================
+    
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
@@ -167,7 +191,8 @@ def preprocess_data_advanced(df):
             'original_max': float(y_train.max()),
             'log_min': float(y_train_log.min()),
             'log_max': float(y_train_log.max())
-        }
+        },
+        'aggregation_groups': aggregation_groups
     }
 
     return (X_train_scaled_df, X_test_scaled_df, X_train_df, X_test_df, 
@@ -307,6 +332,25 @@ def main():
                         (X_train_scaled, X_test_scaled, X_train, X_test, 
                          y_train_log, y_test, y_test_log, scaler, preprocessing_info) = preprocess_data_advanced(df)
                         
+                        # Tampilkan informasi preprocessing
+                        st.subheader("🔧 Preprocessing Information")
+                        
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Original Shape", f"{preprocessing_info['original_shape']}")
+                        with col2:
+                            st.metric("After Cleaning", f"{preprocessing_info['cleaned_shape']}")
+                        with col3:
+                            st.metric("After Aggregation", f"{preprocessing_info['aggregated_shape']}")
+                        with col4:
+                            st.metric("Final Shape", f"{preprocessing_info['final_shape']}")
+                        
+                        # Tampilkan fitur yang digunakan
+                        with st.expander("📋 Features Used"):
+                            st.write("**Media Aggregates:**")
+                            for feature in preprocessing_info['features_used']:
+                                st.write(f"- {feature}")
+                        
                         # Model training
                         if model_type == "Linear Regression":
                             model = LinearRegression()
@@ -398,6 +442,31 @@ def main():
                         plt.tight_layout()
                         st.pyplot(fig)
                         
+                        # Classification Report via Binning
+                        st.subheader("📊 Classification Report (Binned)")
+                        classification_result = create_binned_classification_report(y_test, y_pred)
+                        
+                        if classification_result['success']:
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                st.write("**Confusion Matrix:**")
+                                st.dataframe(classification_result['confusion_matrix'], use_container_width=True)
+                            
+                            with col2:
+                                st.write("**Bin Information:**")
+                                bin_info = classification_result['bins_info']
+                                st.write(f"- **Low Sales:** ≤ {bin_info['low_sales_max']:.2f}")
+                                st.write(f"- **Medium Sales:** {bin_info['medium_sales_min']:.2f} - {bin_info['medium_sales_max']:.2f}")
+                                st.write(f"- **High Sales:** ≥ {bin_info['high_sales_min']:.2f}")
+                            
+                            # Classification Report
+                            report_df = pd.DataFrame(classification_result['classification_report']).transpose()
+                            st.write("**Classification Report:**")
+                            st.dataframe(report_df, use_container_width=True)
+                        else:
+                            st.error(f"Error creating classification report: {classification_result['error']}")
+                        
                     except Exception as e:
                         st.error(f"❌ Error during model training: {str(e)}")
                         st.info("Please check your dataset format and try again.")
@@ -426,6 +495,14 @@ def main():
             1000, 500, 300, ..., 25000
             1200, 600, 350, ..., 28000
             ```
+            
+            **Preprocessing yang dilakukan:**
+            1. **Pembersihan Data** - Konversi format string ke numerik
+            2. **Aggregasi Media** - Menggabungkan channel media yang sama
+            3. **Feature Selection** - Hanya menggunakan media aggregates
+            4. **Outlier Handling** - Winsorization pada fitur dan target
+            5. **Log Transform** - Transformasi log pada target variable
+            6. **Normalisasi** - Standard scaling untuk model linear
             """)
 
 if __name__ == "__main__":
