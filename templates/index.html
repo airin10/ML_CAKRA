@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ML Vision - Advanced Model Evaluator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+    
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-brain"></i> ML CAKRA</h1>
+            <p>Advanced Machine Learning Model Evaluation Platform</p>
+        </div>
+
+        <div class="main-card">
+            <div class="card-header">
+                <h2><i class="fas fa-rocket"></i> Model Configuration</h2>
+            </div>
+            <div class="card-body">
+                <div class="input-group">
+                    <label for="file-upload"><i class="fas fa-database"></i> Dataset Source</label>
+                    <div class="file-input-wrapper">
+                        <div class="file-input-style">
+                            <span id="file-name">Drag & drop or click to upload</span>
+                            <i class="fas fa-cloud-upload-alt"></i>
+                        </div>
+                        <input type="file" id="file-upload" accept=".xlsx,.xls,.csv">
+                    </div>
+                    <div class="file-info">
+                        <i class="fas fa-info-circle"></i> Supports: Excel (.xlsx, .xls) & CSV files | Last column should be target variable
+                    </div>
+                    <div id="upload-status" class="upload-status"></div>
+                </div>
+
+                <div class="input-group">
+                    <label for="model-select"><i class="fas fa-network-wired"></i> Algorithm Selection</label>
+                    <select id="model-select">
+                        <option value="linear">📈 Linear Regression</option>
+                        <option value="ridge">🏔️ Ridge Regression</option>
+                        <option value="lasso">🎯 Lasso Regression</option>
+                        <option value="random_forest">🌲 Random Forest</option>
+                    </select>
+                </div>
+
+                <button id="evaluate-btn" class="btn-primary pulse">
+                    <i class="fas fa-bolt"></i> Launch Analysis
+                </button>
+            </div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <h3>Processing Your Data</h3>
+            <p>Training models and generating comprehensive insights...</p>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+        </div>
+
+        <div class="results-section" id="results">
+            <div class="main-card">
+                <div class="card-header">
+                    <h2><i class="fas fa-chart-bar"></i> Analysis Results</h2>
+                </div>
+                <div class="card-body">
+                    <div id="results-content"></div>
+                    
+                    <div class="results-grid" id="metrics-grid"></div>
+                    
+                    <div id="regression-results"></div>
+                    
+                    <div id="binning-results"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const fileUpload = document.getElementById('file-upload');
+            const modelSelect = document.getElementById('model-select');
+            const evaluateBtn = document.getElementById('evaluate-btn');
+            const loading = document.getElementById('loading');
+            const results = document.getElementById('results');
+            const resultsContent = document.getElementById('results-content');
+            const regressionResults = document.getElementById('regression-results');
+            const binningResults = document.getElementById('binning-results');
+            const metricsGrid = document.getElementById('metrics-grid');
+            const progressFill = document.getElementById('progress-fill');
+            const fileName = document.getElementById('file-name');
+            const uploadStatus = document.getElementById('upload-status');
+
+            // File upload handling
+            fileUpload.addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    fileName.textContent = file.name;
+                    uploadStatus.style.display = 'none';
+                    
+                    // Validate file type
+                    const validTypes = ['.xlsx', '.xls', '.csv'];
+                    const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
+                    
+                    if (!validTypes.includes(fileExtension)) {
+                        showUploadStatus('Error: Please upload only Excel or CSV files', 'error');
+                        fileUpload.value = '';
+                        fileName.textContent = 'Drag & drop or click to upload';
+                        return;
+                    }
+                    
+                    // Validate file size (max 50MB)
+                    const maxSize = 50 * 1024 * 1024; // 50MB in bytes
+                    if (file.size > maxSize) {
+                        showUploadStatus('Error: File size too large. Maximum 50MB allowed', 'error');
+                        fileUpload.value = '';
+                        fileName.textContent = 'Drag & drop or click to upload';
+                        return;
+                    }
+                    
+                    showUploadStatus('File ready for analysis!', 'success');
+                } else {
+                    fileName.textContent = 'Drag & drop or click to upload';
+                    uploadStatus.style.display = 'none';
+                }
+            });
+
+            // Drag and drop functionality
+            const fileInputStyle = document.querySelector('.file-input-style');
+            fileInputStyle.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                this.style.borderColor = 'var(--primary)';
+                this.style.background = 'linear-gradient(135deg, #f0f4ff, #e0e7ff)';
+            });
+
+            fileInputStyle.addEventListener('dragleave', function(e) {
+                e.preventDefault();
+                this.style.borderColor = 'var(--border)';
+                this.style.background = 'var(--light)';
+            });
+
+            fileInputStyle.addEventListener('drop', function(e) {
+                e.preventDefault();
+                this.style.borderColor = 'var(--border)';
+                this.style.background = 'var(--light)';
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    fileUpload.files = files;
+                    const event = new Event('change', { bubbles: true });
+                    fileUpload.dispatchEvent(event);
+                }
+            });
+
+            evaluateBtn.addEventListener('click', function() {
+                if (!fileUpload.files || fileUpload.files.length === 0) {
+                    showNotification('Please select a dataset file first!', 'error');
+                    return;
+                }
+
+                const file = fileUpload.files[0];
+                // Additional validation
+                const validTypes = ['.xlsx', '.xls', '.csv'];
+                const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
+                
+                if (!validTypes.includes(fileExtension)) {
+                    showNotification('Error: Invalid file type. Please upload Excel or CSV files only.', 'error');
+                    return;
+                }
+
+                // Show loading with animation
+                loading.style.display = 'block';
+                results.style.display = 'none';
+                evaluateBtn.disabled = true;
+                evaluateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+
+                // Simulate progress
+                let progress = 0;
+                const progressInterval = setInterval(() => {
+                    progress += Math.random() * 10;
+                    if (progress > 90) progress = 90;
+                    progressFill.style.width = progress + '%';
+                }, 500);
+
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('model_type', modelSelect.value);
+
+                // Send request to backend
+                fetch('/evaluate', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    clearInterval(progressInterval);
+                    progressFill.style.width = '100%';
+                    
+                    setTimeout(() => {
+                        loading.style.display = 'none';
+                        evaluateBtn.disabled = false;
+                        evaluateBtn.innerHTML = '<i class="fas fa-bolt"></i> Launch Analysis';
+
+                        if (data.success) {
+                            showNotification('Model evaluation completed successfully!', 'success');
+                            displayResults(data);
+                        } else {
+                            showNotification('Error: ' + data.error, 'error');
+                            displayError(data);
+                        }
+                    }, 1000);
+                })
+                .catch(error => {
+                    clearInterval(progressInterval);
+                    loading.style.display = 'none';
+                    evaluateBtn.disabled = false;
+                    evaluateBtn.innerHTML = '<i class="fas fa-bolt"></i> Launch Analysis';
+                    console.error('Error:', error);
+                    showNotification('Upload failed: ' + error.message, 'error');
+                    displayError({error: 'Upload failed: ' + error.message});
+                });
+            });
+
+            function showUploadStatus(message, type) {
+                uploadStatus.textContent = message;
+                uploadStatus.className = 'upload-status ' + type;
+                uploadStatus.style.display = 'block';
+            }
+
+            function displayResults(data) {
+                const preprocessingInfo = data.preprocessing_info || {};
+                const featuresUsed = preprocessingInfo.features_used || [];
+                const mediaAggregates = preprocessingInfo.media_aggregates || [];
+                const modelInfo = data.model_info || {};
+
+                // Model specific info
+                let modelSpecificInfo = '';
+                if (modelSelect.value === 'random_forest' && modelInfo) {
+                    modelSpecificInfo = `
+                        <div class="step-card">
+                            <div class="step-header">
+                                <div class="step-icon">
+                                    <i class="fas fa-tree"></i>
+                                </div>
+                                <h4>Random Forest Configuration</h4>
+                            </div>
+                            <p><strong>Number of Trees:</strong> ${modelInfo.n_estimators || 100}</p>
+                            <p><strong>Max Depth:</strong> ${modelInfo.max_depth || 'Not limited'}</p>
+                        </div>
+                    `;
+                }
+
+                // Main results content
+                resultsContent.innerHTML = `
+                    <div class="success-message">
+                        <h3><i class="fas fa-check-circle"></i> Analysis Complete</h3>
+                        <p>Your model has been successfully trained and evaluated. Below are the comprehensive results.</p>
+                    </div>
+
+                    <div class="model-badge">
+                        <i class="fas fa-tag"></i> ${getModelName(modelSelect.value)}
+                    </div>
+
+                    ${modelSpecificInfo}
+
+                    <div class="section-title">
+                        <i class="fas fa-cogs"></i> Data Preprocessing Pipeline
+                    </div>
+
+                    <div class="preprocessing-steps">
+                        <div class="step-card">
+                            <div class="step-header">
+                                <div class="step-icon">
+                                    <i class="fas fa-broom"></i>
+                                </div>
+                                <h4>Data Cleaning</h4>
+                            </div>
+                            <p>• Removed $ symbols and commas from numeric data</p>
+                            <p>• Handled missing values with appropriate imputation</p>
+                        </div>
+
+                        <div class="step-card">
+                            <div class="step-header">
+                                <div class="step-icon">
+                                    <i class="fas fa-project-diagram"></i>
+                                </div>
+                                <h4>Feature Engineering</h4>
+                            </div>
+                            <p>Aggregated media channels into meaningful features:</p>
+                            <div class="feature-list">
+                                ${mediaAggregates.map(agg => `<div class="feature-item">${agg}</div>`).join('')}
+                            </div>
+                        </div>
+
+                        <div class="step-card">
+                            <div class="step-header">
+                                <div class="step-icon">
+                                    <i class="fas fa-bullseye"></i>
+                                </div>
+                                <h4>Feature Selection</h4>
+                            </div>
+                            <p>Selected ${featuresUsed.length} media aggregate features for modeling</p>
+                        </div>
+
+                        <div class="step-card">
+                            <div class="step-header">
+                                <div class="step-icon">
+                                    <i class="fas fa-chart-line"></i>
+                                </div>
+                                <h4>Data Transformation</h4>
+                            </div>
+                            <p>• Log transformation applied to target variable</p>
+                            <p>• Winsorization (5%-95%) for outlier handling</p>
+                            <p>• Standard scaling for feature normalization</p>
+                        </div>
+                    </div>
+                `;
+
+                // Metrics grid
+                metricsGrid.innerHTML = `
+                    <div class="metric-card">
+                        <div class="metric-label">Model Type</div>
+                        <div class="metric-value">${getModelName(modelSelect.value)}</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Mean Squared Error</div>
+                        <div class="metric-value">${data.mse}</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">R-squared (R²)</div>
+                        <div class="metric-value">${data.r2}</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Features Used</div>
+                        <div class="metric-value">${data.features}</div>
+                    </div>
+                `;
+
+                // Regression results
+                displayRegressionResults(data);
+
+                // Binning results
+                if (data.binning_success) {
+                    displayBinningResults(data);
+                }
+
+                results.style.display = 'block';
+                results.scrollIntoView({ behavior: 'smooth' });
+            }
+
+            function displayRegressionResults(data) {
+                regressionResults.innerHTML = `
+                    <div class="section-title">
+                        <i class="fas fa-chart-scatter"></i> Regression Analysis
+                    </div>
+                    <div class="plot-container">
+                        <img class="plot-image" src="data:image/png;base64,${data.regression_plot}" alt="Regression Analysis">
+                    </div>
+                `;
+
+                if (data.feature_importance_plot) {
+                    regressionResults.innerHTML += `
+                        <div class="section-title">
+                            <i class="fas fa-sitemap"></i> Feature Importance
+                        </div>
+                        <div class="plot-container">
+                            <img class="plot-image" src="data:image/png;base64,${data.feature_importance_plot}" alt="Feature Importance">
+                        </div>
+                    `;
+                }
+            }
+
+            function displayBinningResults(data) {
+                const binningInfo = data.binning_info || {};
+                const report = data.classification_report || {};
+
+                let reportText = `              precision    recall  f1-score   support\n\n`;
+                
+                if (data.binning_labels) {
+                    data.binning_labels.forEach(label => {
+                        const metrics = report[label] || {};
+                        reportText += `${label.padEnd(15)} ${(metrics.precision || 0).toFixed(2).padStart(8)} ${(metrics.recall || 0).toFixed(2).padStart(8)} ${(metrics['f1-score'] || 0).toFixed(2).padStart(8)} ${(metrics.support || 0).toString().padStart(8)}\n`;
+                    });
+                }
+
+                binningResults.innerHTML = `
+                    <div class="section-title">
+                        <i class="fas fa-layer-group"></i> Classification Analysis (Binned Sales)
+                    </div>
+                    
+                    <div class="step-card">
+                        <h4>Sales Categories</h4>
+                        <p><strong>Low Sales:</strong> &lt; $${binningInfo.low_sales_max || 0}</p>
+                        <p><strong>Medium Sales:</strong> $${binningInfo.medium_sales_min || 0} - $${binningInfo.medium_sales_max || 0}</p>
+                        <p><strong>High Sales:</strong> &gt; $${binningInfo.high_sales_min || 0}</p>
+                    </div>
+
+                    <div class="plot-container">
+                        <img class="plot-image" src="data:image/png;base64,${data.cm_plot}" alt="Confusion Matrix">
+                    </div>
+                `;
+            }
+
+            function displayError(data) {
+                resultsContent.innerHTML = `
+                    <div class="error-message">
+                        <h3><i class="fas fa-exclamation-triangle"></i> Error Occurred</h3>
+                        <p>${data.error}</p>
+                        ${data.traceback ? `
+                        <details style="margin-top: 15px;">
+                            <summary>Technical Details</summary>
+                            <pre style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-top: 10px; overflow-x: auto;">${data.traceback}</pre>
+                        </details>
+                        ` : ''}
+                    </div>
+                `;
+                results.style.display = 'block';
+            }
+
+            function getModelName(value) {
+                const models = {
+                    'linear': 'Linear Regression',
+                    'ridge': 'Ridge Regression',
+                    'lasso': 'Lasso Regression',
+                    'random_forest': 'Random Forest'
+                };
+                return models[value] || 'Unknown Model';
+            }
+
+            function showNotification(message, type) {
+                // Create notification element
+                const notification = document.createElement('div');
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    padding: 15px 20px;
+                    border-radius: 10px;
+                    color: white;
+                    font-weight: 500;
+                    z-index: 10000;
+                    box-shadow: var(--shadow-lg);
+                    transform: translateX(400px);
+                    transition: transform 0.3s ease;
+                `;
+                
+                if (type === 'success') {
+                    notification.style.background = 'var(--gradient-success)';
+                } else {
+                    notification.style.background = 'var(--gradient-danger)';
+                }
+                
+                notification.innerHTML = `
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-triangle'}"></i>
+                    ${message}
+                `;
+                
+                document.body.appendChild(notification);
+                
+                // Animate in
+                setTimeout(() => {
+                    notification.style.transform = 'translateX(0)';
+                }, 100);
+                
+                // Remove after 5 seconds
+                setTimeout(() => {
+                    notification.style.transform = 'translateX(400px)';
+                    setTimeout(() => {
+                        document.body.removeChild(notification);
+                    }, 300);
+                }, 5000);
+            }
+        });
+    </script>
+</body>
+</html>
